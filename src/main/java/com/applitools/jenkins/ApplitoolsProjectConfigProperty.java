@@ -1,19 +1,39 @@
 package com.applitools.jenkins;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.model.JobProperty;
 import hudson.model.JobPropertyDescriptor;
 import hudson.Extension;
 import hudson.model.AbstractProject;
 import hudson.model.Job;
 
-/**
- * Created by addihorowitz on 8/24/16.
- */
-public class ApplitoolsProjectConfigProperty extends JobProperty<AbstractProject<?, ?>> {
-    private String serverURL;
+import java.io.Serializable;
 
-    public ApplitoolsProjectConfigProperty(String serverURL) {
+/**
+ * Encapsulates Applitools plugin configuration.
+ */
+public class ApplitoolsProjectConfigProperty extends JobProperty<AbstractProject<?, ?>> implements Serializable{
+    private String serverURL;
+    private boolean notifyOnCompletion;
+    private String applitoolsApiKey;
+    private boolean dontCloseBatches;
+    private boolean eyesScmIntegrationEnabled;
+
+    public ApplitoolsProjectConfigProperty(String serverURL, boolean notifyOnCompletion, String applitoolsApiKey,
+                                           boolean dontCloseBatches, boolean eyesScmIntegrationEnabled) {
         this.serverURL = serverURL;
+        this.notifyOnCompletion = notifyOnCompletion;
+        this.applitoolsApiKey = applitoolsApiKey;
+        this.dontCloseBatches = dontCloseBatches;
+        this.eyesScmIntegrationEnabled = eyesScmIntegrationEnabled;
+    }
+
+    public String getApplitoolsApiKey() {
+        return applitoolsApiKey;
+    }
+
+    public void setApplitoolsApiKey(String value) {
+        this.applitoolsApiKey = value;
     }
 
     public String getServerURL()
@@ -24,6 +44,26 @@ public class ApplitoolsProjectConfigProperty extends JobProperty<AbstractProject
     public void setServerURL(String serverURL)
     {
         this.serverURL = serverURL;
+    }
+
+    public boolean getNotifyOnCompletion() { return this.notifyOnCompletion; }
+
+    public void setNotifyOnCompletion(boolean value) { this.notifyOnCompletion = value; }
+
+    public boolean getDontCloseBatches() {
+        return dontCloseBatches;
+    }
+
+    public void setDontCloseBatches(boolean dontCloseBatches) {
+        this.dontCloseBatches = dontCloseBatches;
+    }
+
+    public boolean getEyesScmIntegrationEnabled() {
+        return eyesScmIntegrationEnabled;
+    }
+
+    public void setEyesScmIntegrationEnabled(boolean eyesScmIntegrationEnabled) {
+        this.eyesScmIntegrationEnabled = eyesScmIntegrationEnabled;
     }
 
     @Override
@@ -42,6 +82,7 @@ public class ApplitoolsProjectConfigProperty extends JobProperty<AbstractProject
         }
 
         @Override
+        @NonNull
         public String getDisplayName() {
             return "Set Applitools URL";
         }

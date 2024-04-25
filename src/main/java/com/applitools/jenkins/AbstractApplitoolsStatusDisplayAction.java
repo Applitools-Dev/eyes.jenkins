@@ -1,10 +1,9 @@
 package com.applitools.jenkins;
 
-import hudson.model.AbstractBuild;
 import hudson.model.Action;
 
 /**
- * Created by addihorowitz on 8/11/16.
+ * Base class for Applitools status display action.
  */
 public abstract class AbstractApplitoolsStatusDisplayAction implements Action {
 
@@ -21,6 +20,4 @@ public abstract class AbstractApplitoolsStatusDisplayAction implements Action {
     public String getUrlName() {
         return null;
     }
-
-    public abstract AbstractBuild<?, ?> getBuild();
 }
