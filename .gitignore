@@ -4,3 +4,6 @@ target/
 *~
 .DS_Store
 work/
+*.releaseBackup
+release.properties
+/.java-version

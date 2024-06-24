@@ -1,29 +1,55 @@
 package com.applitools.jenkins;
 
 import hudson.Extension;
+import hudson.FilePath;
 import hudson.Launcher;
 import hudson.model.*;
 import hudson.tasks.BuildWrapper;
+import jenkins.util.VirtualFile;
 import net.sf.json.JSONObject;
+import org.apache.commons.io.IOUtils;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 
-import java.io.IOException;
-import java.io.Serializable;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 import hudson.util.FormValidation;
-import hudson.model.JobProperty;
 import org.kohsuke.stapler.QueryParameter;
-import java.net.URL;
-/**
- * Created by addihorowitz on 8/28/16.
- */
 
+import java.net.URL;
+import java.util.regex.Matcher;
+
+/**
+ * Code for the build page.
+ */
 public class ApplitoolsBuildWrapper extends BuildWrapper implements Serializable {
-    public String serverURL = DescriptorImpl.APPLITOOLS_DEFAULT_URL;
+    public final static String BATCH_NOTIFICATION_PATH = "/api/sessions/batches/%s/close/bypointerid";
+    public String serverURL;
+    public boolean notifyByCompletion;
+    public String applitoolsApiKey;
+
+    private static boolean isCustomBatchId = false;
+
+    static final Map<String, String> ARTIFACT_PATHS = new HashMap();
+
+    static {
+        ARTIFACT_PATHS.put(
+                ApplitoolsCommon.APPLITOOLS_ARTIFACT_PREFIX +
+                        "_" +
+                        ApplitoolsEnvironmentUtil.APPLITOOLS_BATCH_ID,
+                ApplitoolsCommon.APPLITOOLS_ARTIFACT_FOLDER +
+                        "/" +
+                        ApplitoolsEnvironmentUtil.APPLITOOLS_BATCH_ID
+        );
+    }
 
     @DataBoundConstructor
-    public ApplitoolsBuildWrapper(String serverURL) {
+    public ApplitoolsBuildWrapper(String serverURL, boolean notifyByCompletion, String applitoolsApiKey) {
+        this.applitoolsApiKey = applitoolsApiKey;
+        this.notifyByCompletion = notifyByCompletion;
         if (serverURL != null && !serverURL.isEmpty())
         {
             if (DescriptorImpl.validURL(serverURL))
@@ -31,73 +57,72 @@ public class ApplitoolsBuildWrapper extends BuildWrapper implements Serializable
                 this.serverURL = serverURL.trim();
             }
         } else {
-            this.serverURL = DescriptorImpl.APPLITOOLS_DEFAULT_URL;
+            this.serverURL = ApplitoolsCommon.APPLITOOLS_DEFAULT_URL;
         }
     }
 
     @Override
-    public Environment setUp(final AbstractBuild build, Launcher launcher, final BuildListener listener) throws IOException, InterruptedException {
+    public Environment setUp(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException {
 
         runPreBuildActions(build, listener);
 
         return new Environment() {
+            @Override
+            public boolean tearDown(AbstractBuild build, BuildListener listener) throws IOException, InterruptedException {
+                if (isCustomBatchId) {
+                    build.pickArtifactManager().archive(build.getWorkspace(), launcher, listener, ARTIFACT_PATHS);
+                }
+                ApplitoolsCommon.closeBatch(build, listener, serverURL, notifyByCompletion, applitoolsApiKey);
+                return true;
+            }
 
             @Override
             public void buildEnvVars(Map<String, String> env) {
-                buildEnvVariablesForExternalUsage(env, build, listener);
+                Map <String, String> applitoolsArtifacts = getApplitoolsArtifactList(build, listener);
+                ApplitoolsCommon.buildEnvVariablesForExternalUsage(env, build, listener, serverURL, applitoolsApiKey, applitoolsArtifacts);
             }
         };
     }
 
-    private void runPreBuildActions(final AbstractBuild build, final BuildListener listener) throws IOException, InterruptedException
-    {
-        listener.getLogger().println("Starting Applitools Eyes pre-build (server URL is '" + this.serverURL + "')");
+    public static Map<String, String> getApplitoolsArtifactList(AbstractBuild build, TaskListener listener) {
+        Map<String, String> applitoolsArtifacts = new HashMap();
+        FilePath workspace = build.getWorkspace();
+        if (workspace != null) {
+            VirtualFile rootDir = workspace.toVirtualFile();
+            for (Map.Entry<String, String> apath : ARTIFACT_PATHS.entrySet()) {
+                try {
+                    InputStream stream = rootDir.child(apath.getValue()).open();
+                    String value = IOUtils.toString(stream, StandardCharsets.UTF_8.name()).replaceAll(System.getProperty("line.separator"), "");
+                    Matcher m = ApplitoolsCommon.artifactRegexp.matcher(apath.getKey());
+                    if (m.find()) {
+                        applitoolsArtifacts.put(m.group(1), value);
+                        isCustomBatchId = true;
+                    }
+                } catch (IOException e) {
+                    isCustomBatchId = false;
+                    listener.getLogger().println(String.format("Custom BATCH_ID is not defined: %s", rootDir.child(apath.getValue())));
+                }
+            }
+        } else {
+            listener.getLogger().println("build.getWorkspace() returned null, skipping check for applitools artifacts.");
+        }
+        return applitoolsArtifacts;
+    }
 
-        updateProjectProperties(build);
-        addApplitoolsActionToBuild(build);
-        build.save();
+    private void runPreBuildActions(final Run build, final BuildListener listener) throws IOException, InterruptedException
+    {
+        listener.getLogger().println("Starting Applitools Eyes pre-build (server URL is '" + this.serverURL + "') apiKey is " + this.applitoolsApiKey);
+
+        ApplitoolsCommon.integrateWithApplitools(build, this.serverURL, this.notifyByCompletion, this.applitoolsApiKey);
 
         listener.getLogger().println("Finished Applitools Eyes pre-build");
     }
 
-    private void buildEnvVariablesForExternalUsage(Map<String, String> env, final AbstractBuild build, final BuildListener listener)
-    {
-        String batchId = ApplitoolsStatusDisplayAction.generateBatchId(build.getProject().getDisplayName(), build.getNumber(), build.getTimestamp());
-        ApplitoolsEnvironmentUtil.outputVariables(listener, env, serverURL, batchId);
-    }
-
-    private void updateProjectProperties(final AbstractBuild build) throws IOException
-    {
-        boolean found = false;
-        for (Object property:build.getProject().getAllProperties())
-        {
-            if (property instanceof ApplitoolsProjectConfigProperty)
-            {
-                ((ApplitoolsProjectConfigProperty)property).setServerURL(this.serverURL);
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-        {
-            JobProperty jp = new ApplitoolsProjectConfigProperty(this.serverURL);
-            build.getProject().addProperty(jp);
-        }
-        build.getProject().save();
-    }
-
-    private void addApplitoolsActionToBuild(final AbstractBuild build)
-    {
-        ApplitoolsStatusDisplayAction buildAction = build.getAction(ApplitoolsStatusDisplayAction.class);
-        if (buildAction == null) {
-            buildAction = new ApplitoolsStatusDisplayAction(build);
-            build.addAction(buildAction);
-        }
-    }
-
     @Extension
     public static final class DescriptorImpl extends Descriptor<BuildWrapper> {
-        public static final String APPLITOOLS_DEFAULT_URL = "https://eyes.applitools.com";
+        public static String APPLITOOLS_DEFAULT_URL="https://eyes.applitools.com";
+        public static boolean NOTIFY_BY_COMPLETION=true;
+
         public DescriptorImpl() {
             load();
         }
@@ -109,8 +134,9 @@ public class ApplitoolsBuildWrapper extends BuildWrapper implements Serializable
 
         protected static boolean validURL(String url)
         {
+            // Just making sure the URL is valid.
             try {
-                URL serverURL = new URL(url);
+                new URL(url);
             } catch (Exception ex) {
                 return false;
             }
@@ -138,7 +164,7 @@ public class ApplitoolsBuildWrapper extends BuildWrapper implements Serializable
 
         @Override
         public BuildWrapper newInstance(StaplerRequest req, JSONObject formData) throws Descriptor.FormException {
-            return new ApplitoolsBuildWrapper(formData.getString("serverURL"));
+            return new ApplitoolsBuildWrapper(formData.getString("serverURL"), formData.getBoolean("notifyByCompletion"), formData.getString("applitoolsApiKey"));
         }
     }
 }

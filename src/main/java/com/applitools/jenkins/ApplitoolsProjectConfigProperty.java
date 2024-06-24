@@ -6,14 +6,28 @@ import hudson.Extension;
 import hudson.model.AbstractProject;
 import hudson.model.Job;
 
-/**
- * Created by addihorowitz on 8/24/16.
- */
-public class ApplitoolsProjectConfigProperty extends JobProperty<AbstractProject<?, ?>> {
-    private String serverURL;
+import java.io.Serializable;
 
-    public ApplitoolsProjectConfigProperty(String serverURL) {
+/**
+ * Encapsulates Applitools plugin configuration.
+ */
+public class ApplitoolsProjectConfigProperty extends JobProperty<AbstractProject<?, ?>> implements Serializable{
+    private String serverURL;
+    private boolean notifyByCompletion;
+    private String applitoolsApiKey;
+
+    public ApplitoolsProjectConfigProperty(String serverURL, boolean notifyByCompletion, String applitoolsApiKey) {
         this.serverURL = serverURL;
+        this.notifyByCompletion = notifyByCompletion;
+        this.applitoolsApiKey = applitoolsApiKey;
+    }
+
+    public String getApplitoolsApiKey() {
+        return applitoolsApiKey;
+    }
+
+    public void setApplitoolsApiKey(String value) {
+        this.applitoolsApiKey = value;
     }
 
     public String getServerURL()
@@ -25,6 +39,10 @@ public class ApplitoolsProjectConfigProperty extends JobProperty<AbstractProject
     {
         this.serverURL = serverURL;
     }
+
+    public boolean getNotifyByCompletion() { return this.notifyByCompletion; }
+
+    public void setNotifyByCompletion(boolean value) { this.notifyByCompletion = value; }
 
     @Override
     public JobPropertyDescriptor getDescriptor() {
